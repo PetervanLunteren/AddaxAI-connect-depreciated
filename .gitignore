@@ -1,5 +1,4 @@
 models/*
-models/deepfaune/variables.json
 admin_files.csv
 config.json
 cmds-signal-cli.txt

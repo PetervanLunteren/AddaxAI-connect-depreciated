@@ -828,8 +828,32 @@ class IMAPConnection():
             # this FTPS checking is done only for the WUH camera's, as they are the only ones using the FTPS server
             if ftps_files:
                 log(f"found {len(ftps_files)} file(s) in FTPS folder", indent=1, new_line=True)
+                log(f"waiting 5 seconds for files to finish uploading...", indent=1)
+                time.sleep(5)  # Give files time to complete upload
+                
+                # iterate through files
                 for i, filename in enumerate(ftps_files):
                     filepath = os.path.join(ftps_folder_str, filename)
+
+                    # Quick file size stability check with error handling
+                    try:
+                        initial_size = os.path.getsize(filepath)
+                        time.sleep(1)
+                        final_size = os.path.getsize(filepath)
+                        
+                        # if file size is not stable, wait 5 more seconds
+                        if initial_size != final_size:
+                            log(f"file {filename} still uploading, waiting 5 more seconds...", indent=2)
+                            time.sleep(5)
+                            
+                            # Optional: Check one more time after the wait
+                            final_size_check = os.path.getsize(filepath)
+                            if final_size != final_size_check:
+                                log(f"file {filename} still unstable after additional wait", indent=2)
+                    
+                    except OSError as e:
+                        log(f"error checking file size for {filename}: {e}", indent=2)
+                        continue
 
                     # change ownership of the file to the user running the script
                     try:
@@ -1423,21 +1447,37 @@ def check_qr_code_contains_cv2(file_path, target_data):
 def parse_txt_file(file):
     parsed_data = {}
     lines = file.strip().splitlines()
+    
+    # BUG
+    # Some daily reports are not parsed correctly. My suspicion is that either:
+    # 1. The file content isn't being read correctly
+    # 2. There are encoding issues
+    # 3. There are invisible characters in the file
+    # I've added debug statements to help identify the issue.
+    
+    # Debug: print the raw content and lines
+    log(f"DEBUG: Raw file content: '{file}'")
+    log(f"DEBUG: Lines after split: {lines}")
 
     # read 
     try:
         for line in lines:
             line = line.strip()
+            log(f"DEBUG: Processing line: '{line}'")  # Debug
             if line:
                 if ":" in line:
                     key, value = line.split(':', 1)
                     key = key.strip()
                     value = value.strip()
+                    log(f"DEBUG: Adding to parsed_data: '{key}' = '{value}'")  # Debug
                     parsed_data[key] = value
     except FileNotFoundError:
-        print(f"Error: File '{file}' not found.")
+        log(f"Error: File '{file}' not found.")
     except Exception as e:
-        print(f"Error: {e}")
+        log(f"Error: {e}")
+    
+    # Debug: print the final parsed_data before processing
+    log(f"DEBUG: Final parsed_data: {parsed_data}")
     
     # format signal percentage
     try: 
