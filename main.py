@@ -883,52 +883,79 @@ class IMAPConnection():
                         # get unique imgID for folder
                         img_id = get_img_id()
                         
-                        # save image with exif if possible
-                        with Image.open(filepath) as img:
-                            exif_data = img.info.get('exif')
-                            filename = filename.replace(" ", "_")
-                            fpath_org_img = os.path.join(fpath_output_dir, project_name, 'www', 'imgs', img_id, filename)                            
-                            Path(os.path.dirname(fpath_org_img)).mkdir(parents=True, exist_ok=True)
-                            if exif_data is not None:
-                                log(f"saved image to {fpath_org_img} with exif data", indent=2)
-                                img.save(fpath_org_img, exif=exif_data)
-                            else:
-                                log(f"saved image to {fpath_org_img} without exif data", indent=2)
-                                img.save(fpath_org_img)
+                        # save image with exif if possible - add retry logic for truncated files
+                        max_retries = 3
+                        retry_count = 0
+                        while retry_count < max_retries:
+                            try:
+                                with Image.open(filepath) as img:
+                                    break
+                            except (IOError, OSError) as e:
+                                retry_count += 1
+                                if retry_count >= max_retries:
+                                    log(f"failed to open image after {max_retries} attempts: {e}", indent=2)
+                                    move_to_invalid_files_folder(filepath, filename, f"cannot open image file: {e}")
+                                    break
+                                else:
+                                    log(f"cannot open image (attempt {retry_count}/{max_retries}), waiting 10 seconds...", indent=2)
+                                    time.sleep(10)
+                        else:
+                            continue
+                        
+                        try:
+                            with Image.open(filepath) as img:
+                                exif_data = img.info.get('exif')
+                                filename = filename.replace(" ", "_")
+                                fpath_org_img = os.path.join(fpath_output_dir, project_name, 'www', 'imgs', img_id, filename)                            
+                                Path(os.path.dirname(fpath_org_img)).mkdir(parents=True, exist_ok=True)
+                                if exif_data is not None:
+                                    log(f"saved image to {fpath_org_img} with exif data", indent=2)
+                                    img.save(fpath_org_img, exif=exif_data)
+                                else:
+                                    log(f"saved image to {fpath_org_img} without exif data", indent=2)
+                                    img.save(fpath_org_img)
                                 
-                            # remove the original file from FTPS folder so that we don't process it again
-                            log(f"removing original file from FTPS folder", indent=2)
-                            os.remove(filepath)  
+                                # remove the original file from FTPS folder so that we don't process it again
+                                log(f"removing original file from FTPS folder", indent=2)
+                                os.remove(filepath)
+                        except Exception as e:
+                            log(f"error processing image after save: {e}", indent=2)
+                            # Don't try to remove filepath again since it may have been moved already
+                            continue  
                             
                         # check if image size is small
-                        with Image.open(fpath_org_img) as image2G:
-                            width, height =image2G.size
-                            if width == 640 and height == 480:
-                                log("image size is small - camera send image with 2G connection", indent = 2)   
-                                
-                                # adding current datetime (as a temporary solution)
-                                log("adding current datetime as temporary solution", indent = 2)
-                                current_datetime = datetime.datetime.now().strftime('%Y:%m:%d %H:%M:%S')
-                                exif_dict = piexif.load(image2G.info['exif']) if 'exif' in image2G.info else {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": None}
-                                exif_dict['0th'][piexif.ImageIFD.DateTime] = current_datetime
-                                exif_dict['Exif'][piexif.ExifIFD.DateTimeOriginal] = current_datetime
-                                exif_dict['Exif'][piexif.ExifIFD.DateTimeDigitized] = current_datetime
-                                exif_bytes = piexif.dump(exif_dict)
+                        try:
+                            with Image.open(fpath_org_img) as image2G:
+                                width, height =image2G.size
+                                if width == 640 and height == 480:
+                                    log("image size is small - camera send image with 2G connection", indent = 2)   
+                                    
+                                    # adding current datetime (as a temporary solution)
+                                    log("adding current datetime as temporary solution", indent = 2)
+                                    current_datetime = datetime.datetime.now().strftime('%Y:%m:%d %H:%M:%S')
+                                    exif_dict = piexif.load(image2G.info['exif']) if 'exif' in image2G.info else {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": None}
+                                    exif_dict['0th'][piexif.ImageIFD.DateTime] = current_datetime
+                                    exif_dict['Exif'][piexif.ExifIFD.DateTimeOriginal] = current_datetime
+                                    exif_dict['Exif'][piexif.ExifIFD.DateTimeDigitized] = current_datetime
+                                    exif_bytes = piexif.dump(exif_dict)
 
-                                # replace original image with exif image
-                                image2G.save(fpath_org_img, "jpeg", exif=exif_bytes)   
-                            
-                            # add row to CSV file
-                            img_id_suffix_org = "<NA>" if use_imgbb else os.sep.join(fpath_org_img.split(os.sep)[-3:])
-                            # img_id_suffix_vis = "<NA>" if use_imgbb else os.sep.join(fpath_vis_img.split(os.sep)[-3:])
-                            update_admin_files_csv({'img_id': img_id,
-                                                'full_path_org': fpath_org_img,
-                                                'url_org': f"{url_prefix}{img_id_suffix_org}",
-                                                'filename': filename,
-                                                'project_name': project_name,
-                                                'camera_id': camera_id,
-                                                'analysed': False,
-                                                'inference_retry_count': 0})
+                                    # replace original image with exif image
+                                    image2G.save(fpath_org_img, "jpeg", exif=exif_bytes)   
+                                
+                                # add row to CSV file
+                                img_id_suffix_org = "<NA>" if use_imgbb else os.sep.join(fpath_org_img.split(os.sep)[-3:])
+                                # img_id_suffix_vis = "<NA>" if use_imgbb else os.sep.join(fpath_vis_img.split(os.sep)[-3:])
+                                update_admin_files_csv({'img_id': img_id,
+                                                    'full_path_org': fpath_org_img,
+                                                    'url_org': f"{url_prefix}{img_id_suffix_org}",
+                                                    'filename': filename,
+                                                    'project_name': project_name,
+                                                    'camera_id': camera_id,
+                                                    'analysed': False,
+                                                    'inference_retry_count': 0})
+                        except Exception as e:
+                            log(f"error checking image size or updating CSV: {e}", indent=2)
+                            continue
                         
                     # daily reports
                     elif filename.lower().endswith(".txt") and "dailyreport" in filename.lower():
