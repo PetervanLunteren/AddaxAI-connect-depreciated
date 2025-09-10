@@ -395,7 +395,13 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
                         else:
                             param_value = str(exif_data[param])
                     except:
-                        param_value = "NA"
+                        if param == 'DateTimeOriginal':
+                            # Use current time as fallback for missing DateTimeOriginal
+                            current_time = datetime.datetime.now().strftime('%Y:%m:%d %H:%M:%S')
+                            param_value = datetime.datetime.strptime(current_time, '%Y:%m:%d %H:%M:%S').strftime('%d/%m/%y %H:%M:%S')
+                            log(f"DateTimeOriginal missing, using current time as fallback", indent=3)
+                        else:
+                            param_value = "NA"
                     exif_params.append(param_value)
 
         # loop through detections
