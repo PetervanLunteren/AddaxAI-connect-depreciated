@@ -122,7 +122,7 @@ FTPS_HOST = config["ftps_other_machine_ipv4"].strip()
 FTPS_PORT = 21
 FTPS_USER = config["ftps_user"].strip()
 FTPS_PASS = config["ftps_password_user"].strip()
-FTPS_REMOTE_DIR = config["ftps_remote_dir"].strip()
+# FTPS_REMOTE_DIR not needed - using default directory
 
 # gmail 
 gmail_label = config['gmail_label']
@@ -835,7 +835,7 @@ def send_via_ftps(filepath, filename, target_project=None):
             return False
         else:
             ftps.set_pasv(True)
-            ftps.cwd(FTPS_REMOTE_DIR)
+            # No directory change needed - using default directory
             log("FTPS connection established", indent=1)
 
     except Exception as e:
