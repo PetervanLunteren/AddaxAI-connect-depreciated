@@ -116,6 +116,14 @@ camera_id_imei_label_map = config['camera_id_imei_label_map']
 mounted_volume_fpath = config['mounted_volume_fpath']
 ftps_folder_str = "/var/ftps/camera/uploads" # TODO fetch from config
 
+# ftps redirect
+from ftplib import FTP_TLS, error_perm
+FTPS_HOST = config["ftps_other_machine_ipv4"].strip()
+FTPS_PORT = 21
+FTPS_USER = config["ftps_user"].strip()
+FTPS_PASS = config["ftps_password_user"].strip()
+FTPS_REMOTE_DIR = config["ftps_remote_dir"].strip()
+
 # gmail 
 gmail_label = config['gmail_label']
 gmail_imap_server = config['gmail_imap_server']
@@ -806,6 +814,54 @@ def move_to_invalid_files_folder(filepath, filename, error_message):
     # log the error
     log(f"placed file '{filename}' in error folder due to: {error_message}", indent=2)
 
+def send_via_ftps(filepath, filename, target_project=None):
+    if target_project and target_project != "2025-08-WUH":
+        log(f"skipping {filename} - not part of target project '{target_project}'", indent=2)
+        return False
+        
+    ftps = None
+    try:
+        log(f"connecting to {FTPS_HOST}:{FTPS_PORT} as {FTPS_USER}", indent=1)
+        ftps = FTP_TLS()
+        ftps.connect(FTPS_HOST, FTPS_PORT, timeout=30)
+        ftps.auth()
+        ftps.prot_p()
+
+        try:
+            ftps.login(FTPS_USER, FTPS_PASS)
+        except error_perm as e:
+            log(f"FTPS login failed: {e}", indent=1)
+            ftps.close()
+            return False
+        else:
+            ftps.set_pasv(True)
+            ftps.cwd(FTPS_REMOTE_DIR)
+            log("FTPS connection established", indent=1)
+
+    except Exception as e:
+        log(f"FTPS connection error: {e}", indent=1)
+        return False
+
+    if ftps:
+        try:
+            with open(filepath, "rb") as f:
+                ftps.storbinary(f"STOR {filename}", f)
+            log(f"sent {filename} via FTPS to project {target_project}", indent=2)
+            success = True
+        except Exception as e:
+            log(f"failed to send {filename}: {e}", indent=2)
+            success = False
+
+        try:
+            ftps.quit()
+        except Exception:
+            pass
+        
+        return success
+    else:
+        log(f"skipping {filename}, no FTPS connection", indent=2)
+        return False
+
 # gmail checker with retry functionality
 class IMAPConnection():
     
@@ -921,6 +977,11 @@ class IMAPConnection():
                                     log(f"saved image to {fpath_org_img} without exif data", indent=2)
                                     img.save(fpath_org_img)
                                 
+                                # send file via FTPS if it belongs to target project
+                                if project_name == "2025-08-WUH":
+                                    log(f"file belongs to target project {project_name}, sending via FTPS", indent=2)
+                                    send_via_ftps(fpath_org_img, filename, target_project=project_name)
+                                
                                 # remove the original file from FTPS folder so that we don't process it again
                                 log(f"removing original file from FTPS folder", indent=2)
                                 os.remove(filepath)
@@ -999,6 +1060,11 @@ class IMAPConnection():
                         dst_csv = os.path.join(fpath_output_dir, project_name, "data", "daily_reports.csv")
                         Path(os.path.dirname(dst_csv)).mkdir(parents=True, exist_ok=True)
                         add_dict_to_csv(daily_report_dict, dst_csv)
+                        
+                        # send daily report via FTPS if it belongs to target project
+                        if project_name == "2025-08-WUH":
+                            log(f"daily report belongs to target project {project_name}, sending via FTPS", indent=2)
+                            send_via_ftps(filepath, filename, target_project=project_name)
                         
                         # remove the original file from FTPS folder so that we don't process it again
                         log(f"removing original file from FTPS folder", indent=2)
